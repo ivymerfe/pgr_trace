@@ -4,6 +4,7 @@
 #include "fmgr.h"
 #include "hooks.h"
 #include "miscadmin.h"
+#include "nodes/parsenodes.h"
 #include "tcop/utility.h"
 
 #include "shmem.h"
@@ -17,18 +18,11 @@ static void tx_stats_callback(XactEvent event, void *arg) {
 	if (MyBackendType != B_BACKEND) {
 		return;
 	}
-
-	switch (event) {
-	case XACT_EVENT_COMMIT:
-		pg_atomic_fetch_add_u64(&Shmem->successful_commit_count, 1);
-		break;
-
-	case XACT_EVENT_ABORT:
-		pg_atomic_fetch_add_u64(&Shmem->rollback_count, 1);
-		break;
-
-	default:
-		break;
+	if (event == XACT_EVENT_COMMIT) {
+		pg_atomic_fetch_add_u64(&Shmem->successful_commits, 1);
+	}
+	if (event == XACT_EVENT_ABORT) {
+		pg_atomic_fetch_add_u64(&Shmem->aborted, 1);
 	}
 }
 
@@ -38,13 +32,12 @@ static void tx_stats_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 									ParamListInfo params,
 									QueryEnvironment *queryEnv,
 									DestReceiver *dest, QueryCompletion *qc) {
-	Node *parsetree = pstmt->utilityStmt;
-
-	if (IsA(parsetree, TransactionStmt)) {
-		TransactionStmt *stmt = (TransactionStmt *)parsetree;
-		if (stmt->kind == TRANS_STMT_COMMIT) {
-			if (IsAbortedTransactionBlockState()) {
-				pg_atomic_fetch_add_u64(&Shmem->failed_commit_count, 1);
+	if (IsTransactionBlock()) {
+		Node *parsetree = pstmt->utilityStmt;
+		if (IsA(parsetree, TransactionStmt)) {
+			TransactionStmt *stmt = (TransactionStmt *)parsetree;
+			if (stmt->kind == TRANS_STMT_ROLLBACK) {
+				pg_atomic_fetch_add_u64(&Shmem->rollbacks, 1);
 			}
 		}
 	}

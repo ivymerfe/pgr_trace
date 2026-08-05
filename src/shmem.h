@@ -5,9 +5,9 @@
 #include "port/atomics.h"
 
 typedef struct SharedMemory {
-	pg_atomic_uint64 successful_commit_count;
-	pg_atomic_uint64 failed_commit_count;
-	pg_atomic_uint64 rollback_count;
+	pg_atomic_uint64 successful_commits;
+	pg_atomic_uint64 aborted;
+	pg_atomic_uint64 rollbacks;
 } SharedMemory;
 
 extern SharedMemory *Shmem;

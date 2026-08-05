@@ -12,9 +12,9 @@ static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
 static shmem_request_hook_type prev_shmem_request_hook = NULL;
 
 static void shared_memory_init(void) {
-	pg_atomic_init_u64(&Shmem->successful_commit_count, 0);
-	pg_atomic_init_u64(&Shmem->failed_commit_count, 0);
-	pg_atomic_init_u64(&Shmem->rollback_count, 0);
+	pg_atomic_init_u64(&Shmem->successful_commits, 0);
+	pg_atomic_init_u64(&Shmem->aborted, 0);
+	pg_atomic_init_u64(&Shmem->rollbacks, 0);
 }
 
 static void hook_shmem_request(void) {
