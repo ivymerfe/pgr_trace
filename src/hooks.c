@@ -3,6 +3,7 @@
 #include "access/xact.h"
 #include "fmgr.h"
 #include "hooks.h"
+#include "miscadmin.h"
 #include "tcop/utility.h"
 
 #include "shmem.h"
@@ -11,6 +12,9 @@ static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 
 static void tx_stats_callback(XactEvent event, void *arg) {
 	if (!Shmem) {
+		return;
+	}
+	if (MyBackendType != B_BACKEND) {
 		return;
 	}
 
