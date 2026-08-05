@@ -9,17 +9,25 @@ PG_FUNCTION_INFO_V1(tx_commit_stats_get);
 PG_FUNCTION_INFO_V1(tx_commit_stats_reset);
 
 Datum tx_commit_stats_get(PG_FUNCTION_ARGS) {
-	TupleDesc tupdesc;
+	TupleDesc tupdesc = (TupleDesc)fcinfo->flinfo->fn_extra;
 	Datum values[3];
 	bool nulls[3] = {false, false, false};
 
-	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE) {
-		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-						errmsg("function returning record called in context "
-							   "that cannot accept type record")));
-	}
+	if (tupdesc == NULL) {
+		MemoryContext oldcontext =
+			MemoryContextSwitchTo(fcinfo->flinfo->fn_mcxt);
 
-	tupdesc = BlessTupleDesc(tupdesc);
+		if (get_call_result_type(fcinfo, NULL, &tupdesc) !=
+			TYPEFUNC_COMPOSITE) {
+			ereport(ERROR,
+					(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+					 errmsg("function returning record called in context "
+							"that cannot accept type record")));
+		}
+		fcinfo->flinfo->fn_extra = (void *)tupdesc;
+
+		MemoryContextSwitchTo(oldcontext);
+	}
 
 	values[0] =
 		Int64GetDatum(pg_atomic_read_u64(&Shmem->successful_commit_count));
