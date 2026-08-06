@@ -8,6 +8,8 @@ typedef struct SharedMemory {
 	pg_atomic_uint64 successful_commits;
 	pg_atomic_uint64 aborted;
 	pg_atomic_uint64 rollbacks;
+	pg_atomic_uint64 exec_start;
+	pg_atomic_uint64 utility;
 } SharedMemory;
 
 extern SharedMemory *Shmem;

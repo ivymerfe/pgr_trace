@@ -15,6 +15,8 @@ static void shared_memory_init(void) {
 	pg_atomic_init_u64(&Shmem->successful_commits, 0);
 	pg_atomic_init_u64(&Shmem->aborted, 0);
 	pg_atomic_init_u64(&Shmem->rollbacks, 0);
+	pg_atomic_init_u64(&Shmem->exec_start, 0);
+	pg_atomic_init_u64(&Shmem->utility, 0);
 }
 
 static void hook_shmem_request(void) {

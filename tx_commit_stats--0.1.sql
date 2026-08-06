@@ -1,7 +1,9 @@
 CREATE FUNCTION tx_commit_stats_get(
     OUT successful_commits bigint,
     OUT failed_commits bigint,
-    OUT rollbacks bigint
+    OUT rollbacks bigint,
+    OUT exec_start bigint,
+    OUT utility bigint
 )
 AS 'MODULE_PATHNAME', 'tx_commit_stats_get'
 LANGUAGE C STRICT PARALLEL SAFE;

@@ -29,13 +29,17 @@ Datum tx_commit_stats_get(PG_FUNCTION_ARGS) {
 	uint64_t success = pg_atomic_read_u64(&Shmem->successful_commits);
 	uint64_t aborts = pg_atomic_read_u64(&Shmem->aborted);
 	uint64_t rollbacks = pg_atomic_read_u64(&Shmem->rollbacks);
+	uint64_t exec_starts = pg_atomic_read_u64(&Shmem->exec_start);
+	uint64_t utility = pg_atomic_read_u64(&Shmem->utility);
 	uint64_t failed_commits = aborts - rollbacks;
 
-	bool nulls[3] = {false, false, false};
-	Datum values[3];
+	bool nulls[5] = {false, false, false};
+	Datum values[5];
 	values[0] = Int64GetDatum(success);
 	values[1] = Int64GetDatum(failed_commits);
 	values[2] = Int64GetDatum(rollbacks);
+	values[3] = Int64GetDatum(exec_starts);
+	values[4] = Int64GetDatum(utility);
 
 	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
 }
@@ -44,6 +48,7 @@ Datum tx_commit_stats_reset(PG_FUNCTION_ARGS) {
 	pg_atomic_write_u64(&Shmem->successful_commits, 0);
 	pg_atomic_write_u64(&Shmem->aborted, 0);
 	pg_atomic_write_u64(&Shmem->rollbacks, 0);
-
+	pg_atomic_write_u64(&Shmem->exec_start, 0);
+	pg_atomic_init_u64(&Shmem->utility, 0);
 	PG_RETURN_VOID();
 }
