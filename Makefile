@@ -8,11 +8,15 @@ EXTENSION = tx_commit_stats
 DATA = tx_commit_stats--0.1.sql
 
 PG_CONFIG = pg_config
+
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)
 
 build/%.o: %.c | build/src
 	$(CC) $(PG_CPPFLAGS) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
+
+build/%.bc: %.c | build/src
+	$(COMPILE.c.bc) $< -o $@
 
 build/src:
 	@mkdir -p $@
