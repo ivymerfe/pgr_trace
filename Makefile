@@ -1,6 +1,6 @@
 MODULE_big = pgr_trace
 
-SOURCES = src/init.c src/shmem.c src/funcs.c src/hooks.c
+SOURCES = src/init.c src/shmem.c src/funcs.c src/hooks.c src/statement_index.c
 
 OBJS = $(patsubst %.c, build/%.o, $(SOURCES))
 

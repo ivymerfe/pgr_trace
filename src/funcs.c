@@ -1,13 +1,16 @@
 #include "postgres.h"
 
 #include "access/htup_details.h"
+#include "fmgr.h"
 #include "funcapi.h"
 
 #include "shmem.h"
+#include "statement_index.h"
 #include <stdint.h>
 
 PG_FUNCTION_INFO_V1(sql_pgr_stats_get);
 PG_FUNCTION_INFO_V1(sql_pgr_stats_reset);
+PG_FUNCTION_INFO_V1(sql_pgr_get_statement_index);
 
 Datum sql_pgr_stats_get(PG_FUNCTION_ARGS) {
 	TupleDesc tupdesc = (TupleDesc)fcinfo->flinfo->fn_extra;
@@ -42,4 +45,8 @@ Datum sql_pgr_stats_get(PG_FUNCTION_ARGS) {
 Datum sql_pgr_stats_reset(PG_FUNCTION_ARGS) {
 	pgr_stats_reset();
 	PG_RETURN_VOID();
+}
+
+Datum sql_pgr_get_statement_index(PG_FUNCTION_ARGS) {
+	PG_RETURN_UINT64(StatementIndex);
 }
