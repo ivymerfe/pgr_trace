@@ -1,4 +1,0 @@
-comment = 'successfull commits / failed commits / rollbacks count'
-default_version = '0.1'
-module_pathname = '$libdir/tx_commit_stats'
-relocatable = true

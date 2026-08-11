@@ -1,0 +1,4 @@
+comment = 'stats and other things for pgr replay'
+default_version = '0.1'
+module_pathname = '$libdir/pgr_trace'
+relocatable = true

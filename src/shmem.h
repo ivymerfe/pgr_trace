@@ -1,19 +1,27 @@
-#ifndef PG_TX_STATS_SHMEM_H
-#define PG_TX_STATS_SHMEM_H
+#ifndef PGR_SHMEM_H
+#define PGR_SHMEM_H
 
 #include "postgres.h"
 #include "port/atomics.h"
 
-typedef struct SharedMemory {
-	pg_atomic_uint64 successful_commits;
-	pg_atomic_uint64 aborted;
+typedef struct {
+	pg_atomic_uint64 commits;
+	pg_atomic_uint64 aborts;
 	pg_atomic_uint64 rollbacks;
-	pg_atomic_uint64 exec_start;
-	pg_atomic_uint64 utility;
 } SharedMemory;
 
 extern SharedMemory *Shmem;
 
-void setup_shmem_hooks(void);
+void pgr_init_memory();
 
-#endif // PG_TX_STATS_SHMEM_H
+uint64 pgr_stats_get_commits();
+uint64 pgr_stat_aborts();
+uint64 pgr_stats_get_rollbacks();
+uint64 pgr_stats_get_failed_commits();
+
+void pgr_event_commit();
+void pgr_event_abort();
+void pgr_event_rollback();
+void pgr_stats_reset();
+
+#endif

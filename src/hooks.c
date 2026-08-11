@@ -6,44 +6,38 @@
 #include "hooks.h"
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
+#include "storage/ipc.h"
+#include "storage/shmem.h"
 #include "tcop/utility.h"
 
 #include "shmem.h"
 
+SharedMemory *Shmem = NULL;
+
+static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+static shmem_request_hook_type prev_shmem_request_hook = NULL;
 static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
 
-static bool is_user_tx = false;
+static bool IsUserTransaction = false;
 
-static void tx_stats_callback(XactEvent event, void *arg) {
-	if (!Shmem) {
-		return;
-	}
-	if (MyBackendType != B_BACKEND) {
-		return;
-	}
-	if (event == XACT_EVENT_COMMIT) {
-		if (is_user_tx) {
-			pg_atomic_fetch_add_u64(&Shmem->successful_commits, 1);
-		}
-		is_user_tx = false;
-	}
-	if (event == XACT_EVENT_ABORT) {
-		if (is_user_tx) {
-			pg_atomic_fetch_add_u64(&Shmem->aborted, 1);
-		}
-		is_user_tx = false;
+static void pgr_ExecutorStart_hook(QueryDesc *queryDesc, int eflags) {
+	IsUserTransaction = true;
+
+	if (prev_ExecutorStart) {
+		prev_ExecutorStart(queryDesc, eflags);
+	} else {
+		standard_ExecutorStart(queryDesc, eflags);
 	}
 }
 
-static void tx_stats_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
+static void pgr_ProcessUtility_hook(PlannedStmt *pstmt, const char *queryString,
 									bool readOnlyTree,
 									ProcessUtilityContext context,
 									ParamListInfo params,
 									QueryEnvironment *queryEnv,
 									DestReceiver *dest, QueryCompletion *qc) {
-	is_user_tx = true;
-	pg_atomic_fetch_add_u64(&Shmem->utility, 1);
+	IsUserTransaction = true;
 
 	if (IsTransactionBlock()) {
 		Node *parsetree = pstmt->utilityStmt;
@@ -63,22 +57,60 @@ static void tx_stats_ProcessUtility(PlannedStmt *pstmt, const char *queryString,
 	}
 }
 
-static void tx_stats_ExecutorStart(QueryDesc *queryDesc, int eflags) {
-	is_user_tx = true;
-	pg_atomic_fetch_add_u64(&Shmem->exec_start, 1);
-
-	if (prev_ExecutorStart) {
-		prev_ExecutorStart(queryDesc, eflags);
-	} else {
-		standard_ExecutorStart(queryDesc, eflags);
+static void pgr_xact_callback(XactEvent event, void *arg) {
+	if (!Shmem) {
+		return;
+	}
+	if (MyBackendType != B_BACKEND) {
+		return;
+	}
+	if (event == XACT_EVENT_COMMIT) {
+		if (IsUserTransaction) {
+			pgr_event_commit();
+		}
+		IsUserTransaction = false;
+	}
+	if (event == XACT_EVENT_ABORT) {
+		if (IsUserTransaction) {
+			pgr_event_abort();
+		}
+		IsUserTransaction = false;
 	}
 }
 
-void setup_hooks() {
-	prev_ProcessUtility = ProcessUtility_hook;
-	ProcessUtility_hook = tx_stats_ProcessUtility;
-	prev_ExecutorStart = ExecutorStart_hook;
-	ExecutorStart_hook = tx_stats_ExecutorStart;
+static void pgr_shmem_request_hook() {
+	if (prev_shmem_request_hook) {
+		prev_shmem_request_hook();
+	}
 
-	RegisterXactCallback(tx_stats_callback, NULL);
+	RequestAddinShmemSpace(MAXALIGN(sizeof(SharedMemory)));
+}
+
+static void pgr_shmem_startup_hook() {
+	if (prev_shmem_startup_hook) {
+		prev_shmem_startup_hook();
+	}
+
+	bool found_mem;
+	Shmem = (SharedMemory *)ShmemInitStruct("pgr_trace_mem",
+											sizeof(SharedMemory), &found_mem);
+	if (!found_mem) {
+		pgr_init_memory();
+	}
+}
+
+void pgr_setup_hooks() {
+	prev_shmem_request_hook = shmem_request_hook;
+	shmem_request_hook = pgr_shmem_request_hook;
+
+	prev_shmem_startup_hook = shmem_startup_hook;
+	shmem_startup_hook = pgr_shmem_startup_hook;
+
+	prev_ProcessUtility = ProcessUtility_hook;
+	ProcessUtility_hook = pgr_ProcessUtility_hook;
+
+	prev_ExecutorStart = ExecutorStart_hook;
+	ExecutorStart_hook = pgr_ExecutorStart_hook;
+
+	RegisterXactCallback(pgr_xact_callback, NULL);
 }

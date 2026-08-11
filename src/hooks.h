@@ -1,6 +1,6 @@
-#ifndef PG_TX_STATS_HOOKS_H
-#define PG_TX_STATS_HOOKS_H
+#ifndef PGR_HOOKS_H
+#define PGR_HOOKS_H
 
-void setup_hooks();
+void pgr_setup_hooks();
 
-#endif // PG_TX_STATS_HOOKS_H
+#endif
