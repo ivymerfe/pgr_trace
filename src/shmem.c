@@ -67,7 +67,7 @@ static void pgr_wakeup_worker() {
 
 void pgr_trace_start() {
 	pg_atomic_write_u32(&Shmem->trace_running, 1);
-	pgr_wakeup_worker();
+	pgr_trace_reset();
 }
 
 void pgr_trace_stop() {

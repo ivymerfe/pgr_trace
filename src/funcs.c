@@ -13,7 +13,6 @@ PG_FUNCTION_INFO_V1(sql_pgr_stats_reset);
 PG_FUNCTION_INFO_V1(sql_pgr_get_statement_index);
 PG_FUNCTION_INFO_V1(sql_pgr_trace_start);
 PG_FUNCTION_INFO_V1(sql_pgr_trace_stop);
-PG_FUNCTION_INFO_V1(sql_pgr_trace_reset);
 
 Datum sql_pgr_stats_get(PG_FUNCTION_ARGS) {
 	TupleDesc tupdesc = (TupleDesc)fcinfo->flinfo->fn_extra;
@@ -63,10 +62,5 @@ Datum sql_pgr_trace_start(PG_FUNCTION_ARGS) {
 
 Datum sql_pgr_trace_stop(PG_FUNCTION_ARGS) {
 	pgr_trace_stop();
-	PG_RETURN_VOID();
-}
-
-Datum sql_pgr_trace_reset(PG_FUNCTION_ARGS) {
-	pgr_trace_reset();
 	PG_RETURN_VOID();
 }
