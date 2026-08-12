@@ -7,6 +7,6 @@ extern int32 PgrClientId;
 
 void pgr_read_client_id(Port *port);
 
-bool pgr_is_client();
+bool pgr_is_client(void);
 
 #endif

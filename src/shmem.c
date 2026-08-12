@@ -4,7 +4,6 @@
 #include "shmem.h"
 #include "statement_index.h"
 #include "trace_worker.h"
-#include "utils/timestamp.h"
 
 void pgr_init_memory() {
 	pg_atomic_init_u64(&Shmem->commits, 0);
@@ -82,6 +81,9 @@ void pgr_trace_stop() {
 }
 
 bool pgr_trace_is_running() {
+	if (!Shmem) {
+		return false;
+	}
 	return pg_atomic_read_u32(&Shmem->trace_running) == 1;
 }
 
@@ -105,9 +107,10 @@ void pgr_send_event(char event_type, uint32 duration_us) {
 	pg_write_barrier();
 	pg_atomic_write_u32(&ev->ready, 1);
 
-	if (Shmem->worker_latch) {
-		SetLatch(Shmem->worker_latch);
-	}
+	// too expensive lol
+	// if (Shmem->worker_latch) {
+	// 	SetLatch(Shmem->worker_latch);
+	// }
 }
 
 bool pgr_read_event(PgrEvent *out) {

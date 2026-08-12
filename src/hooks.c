@@ -1,6 +1,5 @@
 #include "postgres.h"
 
-#include "datatype/timestamp.h"
 #include "hooks.h"
 
 #include "access/xact.h"
@@ -11,6 +10,7 @@
 #include "nodes/plannodes.h"
 #include "optimizer/planner.h"
 #include "parser/analyze.h"
+#include "portability/instr_time.h"
 #include "storage/ipc.h"
 #include "storage/shmem.h"
 #include "tcop/utility.h"
@@ -30,32 +30,31 @@ static post_parse_analyze_hook_type prev_post_parse_analyze = NULL;
 static planner_hook_type prev_planner = NULL;
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
 static ExecutorRun_hook_type prev_ExecutorRun = NULL;
-static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
 static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 
 static bool IsUserTransaction = false;
 
-static TimestampTz pgr_trace_start_ts;
+static instr_time pgr_trace_start_it;
 
-static uint32 ts_diff_us(TimestampTz start, TimestampTz end) {
-	long secs;
-	int usecs;
-	TimestampDifference(start, end, &secs, &usecs);
-	return (uint32)(secs * 1000000L + usecs);
+static uint32 it_diff_us(instr_time start, instr_time end) {
+	INSTR_TIME_SUBTRACT(end, start);
+	return (uint32)INSTR_TIME_GET_MICROSEC(end);
 }
 
 static void pgr_trace_begin() {
-	if (!pgr_is_client()) {
+	if (!pgr_is_client() || !pgr_trace_is_running()) {
 		return;
 	}
-	pgr_trace_start_ts = GetCurrentTimestamp();
+	INSTR_TIME_SET_CURRENT(pgr_trace_start_it);
 }
 
 static void pgr_trace_end(char event_type) {
-	if (!pgr_is_client()) {
+	if (!pgr_is_client() || !pgr_trace_is_running()) {
 		return;
 	}
-	uint32 duration_us = ts_diff_us(pgr_trace_start_ts, GetCurrentTimestamp());
+	instr_time now;
+	INSTR_TIME_SET_CURRENT(now);
+	uint32 duration_us = it_diff_us(pgr_trace_start_it, now);
 	pgr_send_event(event_type, duration_us);
 }
 
@@ -73,8 +72,11 @@ static void pgr_ClientAuthentication_hook(struct Port *port, int status) {
 static void pgr_post_parse_analyze_hook(ParseState *pstate, Query *query,
 										JumbleState *jstate) {
 	if (pgr_is_client()) {
-		uint32 parse_duration = ts_diff_us(GetCurrentStatementStartTimestamp(),
-										   GetCurrentTimestamp());
+		long secs;
+		int usecs;
+		TimestampDifference(GetCurrentStatementStartTimestamp(),
+							GetCurrentTimestamp(), &secs, &usecs);
+		uint32 parse_duration = (uint32)(secs * 1000000L + usecs);
 		pgr_send_event('p', parse_duration);
 	}
 	if (prev_post_parse_analyze) {
@@ -117,14 +119,6 @@ static void pgr_ExecutorRun_hook(QueryDesc *queryDesc, ScanDirection direction,
 		prev_ExecutorRun(queryDesc, direction, count);
 	} else {
 		standard_ExecutorRun(queryDesc, direction, count);
-	}
-}
-
-static void pgr_ExecutorEnd_hook(QueryDesc *queryDesc) {
-	if (prev_ExecutorEnd) {
-		prev_ExecutorEnd(queryDesc);
-	} else {
-		standard_ExecutorEnd(queryDesc);
 	}
 	pgr_trace_end('E');
 }
@@ -221,9 +215,6 @@ void pgr_setup_hooks() {
 
 	prev_ExecutorRun = ExecutorRun_hook;
 	ExecutorRun_hook = pgr_ExecutorRun_hook;
-
-	prev_ExecutorEnd = ExecutorEnd_hook;
-	ExecutorEnd_hook = pgr_ExecutorEnd_hook;
 
 	prev_ProcessUtility = ProcessUtility_hook;
 	ProcessUtility_hook = pgr_ProcessUtility_hook;

@@ -34,12 +34,14 @@ Datum sql_pgr_stats_get(PG_FUNCTION_ARGS) {
 	uint64_t commits = pgr_stats_get_commits();
 	uint64_t rollbacks = pgr_stats_get_rollbacks();
 	uint64_t failed_commits = pgr_stats_get_failed_commits();
+	uint64_t dropped_events = pgr_stats_get_dropped_events();
 
-	bool nulls[3] = {false, false, false};
-	Datum values[3];
+	bool nulls[4] = {false, false, false, false};
+	Datum values[4];
 	values[0] = Int64GetDatum(commits);
 	values[1] = Int64GetDatum(rollbacks);
 	values[2] = Int64GetDatum(failed_commits);
+	values[3] = Int64GetDatum(dropped_events);
 
 	PG_RETURN_DATUM(HeapTupleGetDatum(heap_form_tuple(tupdesc, values, nulls)));
 }

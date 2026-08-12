@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include "port.h"
 #include "trace_worker.h"
 
 #include "miscadmin.h"
@@ -8,7 +9,6 @@
 #include "storage/proc.h"
 #include "utils/elog.h"
 #include "utils/timestamp.h"
-#include "utils/wait_classes.h"
 
 #include <stdio.h>
 #include <sys/stat.h>
@@ -36,11 +36,7 @@ static FILE *pgr_open_trace_file() {
 
 static void pgr_drain_ring(FILE *f) {
 	PgrEvent ev;
-
 	while (pgr_read_event(&ev)) {
-		if (f == NULL) {
-			continue;
-		}
 		fprintf(f, "%u,%u,%c,%u\n", ev.id, ev.index, ev.event_type,
 				ev.duration_us);
 	}
@@ -62,26 +58,18 @@ PGDLLEXPORT void pgr_trace_worker_main(Datum main_arg) {
 	Shmem->worker_latch = &MyProc->procLatch;
 
 	FILE *trace_file = pgr_open_trace_file();
-
+	if (trace_file == NULL) {
+		return;
+	}
 	while (!got_sigterm && pgr_trace_is_running()) {
 		pgr_drain_ring(trace_file);
-		int rc =
-			WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
-					  1000L, PG_WAIT_EXTENSION);
-		ResetLatch(MyLatch);
-
-		if (rc & WL_POSTMASTER_DEATH) {
-			break;
-		}
-
+		pg_usleep(PGR_WORKER_SLEEP_US);
 		CHECK_FOR_INTERRUPTS();
 	}
 	pgr_drain_ring(trace_file);
 
-	if (trace_file != NULL) {
-		fflush(trace_file);
-		fclose(trace_file);
-	}
+	fflush(trace_file);
+	fclose(trace_file);
 
 	Shmem->worker_latch = NULL;
 }

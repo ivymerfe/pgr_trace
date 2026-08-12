@@ -1,7 +1,8 @@
 CREATE FUNCTION pgr_stats_get(
     OUT commits bigint,
     OUT rollbacks bigint,
-    OUT failed_commits bigint
+    OUT failed_commits bigint,
+    OUT dropped_events bigint
 )
 AS 'MODULE_PATHNAME', 'sql_pgr_stats_get'
 LANGUAGE C STRICT PARALLEL SAFE;
