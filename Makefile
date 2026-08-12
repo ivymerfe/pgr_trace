@@ -6,7 +6,8 @@ SOURCES = \
 	src/funcs.c \
 	src/hooks.c \
 	src/statement_index.c \
-	src/helpers.c
+	src/client_id.c \
+	src/trace_worker.c
 
 OBJS = $(patsubst %.c, build/%.o, $(SOURCES))
 

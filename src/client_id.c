@@ -1,10 +1,10 @@
 #include "postgres.h"
 
-#include "helpers.h"
+#include "client_id.h"
 
-#include "libpq/libpq-be.h"
+int32 PgrClientId = -1;
 
-int32 pgr_extract_client_id(Port *port) {
+void pgr_read_client_id(Port *port) {
 	ListCell *lc;
 	for (lc = list_head(port->guc_options); lc != NULL;
 		 lc = lnext(port->guc_options, lc)) {
@@ -26,11 +26,14 @@ int32 pgr_extract_client_id(Port *port) {
 			parsed = strtol(value, &endptr, 10);
 			if (errno == 0 && endptr != value && *endptr == '\0' &&
 				parsed >= INT32_MIN && parsed <= INT32_MAX) {
-				return (int32)parsed;
+				PgrClientId = (int32)parsed;
+				return;
 			}
 		}
-
 		lc = lc2;
 	}
-	return -1;
+}
+
+bool pgr_is_client() {
+	return PgrClientId != -1;
 }

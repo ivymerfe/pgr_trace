@@ -1,20 +1,24 @@
 #include "postgres.h"
 
+#include "datatype/timestamp.h"
 #include "hooks.h"
 
 #include "access/xact.h"
 #include "executor/executor.h"
-#include "fmgr.h"
 #include "libpq/auth.h"
 #include "miscadmin.h"
 #include "nodes/parsenodes.h"
+#include "nodes/plannodes.h"
+#include "optimizer/planner.h"
+#include "parser/analyze.h"
 #include "storage/ipc.h"
 #include "storage/shmem.h"
 #include "tcop/utility.h"
 #include "utils/elog.h"
 
-#include "helpers.h"
+#include "client_id.h"
 #include "shmem.h"
+#include "utils/timestamp.h"
 
 SharedMemory *Shmem = NULL;
 
@@ -22,30 +26,107 @@ static shmem_startup_hook_type prev_shmem_startup = NULL;
 static shmem_request_hook_type prev_shmem_request = NULL;
 
 static ClientAuthentication_hook_type prev_ClientAuthentication = NULL;
-static ProcessUtility_hook_type prev_ProcessUtility = NULL;
+static post_parse_analyze_hook_type prev_post_parse_analyze = NULL;
+static planner_hook_type prev_planner = NULL;
 static ExecutorStart_hook_type prev_ExecutorStart = NULL;
+static ExecutorRun_hook_type prev_ExecutorRun = NULL;
+static ExecutorEnd_hook_type prev_ExecutorEnd = NULL;
+static ProcessUtility_hook_type prev_ProcessUtility = NULL;
 
-static int32 PgrClientId = -1;
 static bool IsUserTransaction = false;
+
+static TimestampTz pgr_trace_start_ts;
+
+static uint32 ts_diff_us(TimestampTz start, TimestampTz end) {
+	long secs;
+	int usecs;
+	TimestampDifference(start, end, &secs, &usecs);
+	return (uint32)(secs * 1000000L + usecs);
+}
+
+static void pgr_trace_begin() {
+	if (!pgr_is_client()) {
+		return;
+	}
+	pgr_trace_start_ts = GetCurrentTimestamp();
+}
+
+static void pgr_trace_end(char event_type) {
+	if (!pgr_is_client()) {
+		return;
+	}
+	uint32 duration_us = ts_diff_us(pgr_trace_start_ts, GetCurrentTimestamp());
+	pgr_send_event(event_type, duration_us);
+}
 
 static void pgr_ClientAuthentication_hook(struct Port *port, int status) {
 	if (prev_ClientAuthentication) {
 		prev_ClientAuthentication(port, status);
 	}
-	PgrClientId = pgr_extract_client_id(port);
-	if (PgrClientId != -1) {
-		ereport(LOG, errmsg("pgr connected with id = %d", PgrClientId));
+	pgr_read_client_id(port);
+	if (pgr_is_client()) {
+		ereport(DEBUG1,
+				errmsg("pgr client connected with id = %d", PgrClientId));
 	}
+}
+
+static void pgr_post_parse_analyze_hook(ParseState *pstate, Query *query,
+										JumbleState *jstate) {
+	if (pgr_is_client()) {
+		uint32 parse_duration = ts_diff_us(GetCurrentStatementStartTimestamp(),
+										   GetCurrentTimestamp());
+		pgr_send_event('p', parse_duration);
+	}
+	if (prev_post_parse_analyze) {
+		prev_post_parse_analyze(pstate, query, jstate);
+	}
+}
+
+static PlannedStmt *pgr_planner_hook(Query *parse, const char *query_string,
+									 int cursorOptions,
+									 ParamListInfo boundParams) {
+	PlannedStmt *result;
+
+	pgr_trace_begin();
+	if (prev_planner) {
+		result = prev_planner(parse, query_string, cursorOptions, boundParams);
+	} else {
+		result =
+			standard_planner(parse, query_string, cursorOptions, boundParams);
+	}
+	pgr_trace_end('P');
+	return result;
 }
 
 static void pgr_ExecutorStart_hook(QueryDesc *queryDesc, int eflags) {
 	IsUserTransaction = true;
 
+	pgr_trace_begin();
 	if (prev_ExecutorStart) {
 		prev_ExecutorStart(queryDesc, eflags);
 	} else {
 		standard_ExecutorStart(queryDesc, eflags);
 	}
+	pgr_trace_end('S');
+}
+
+static void pgr_ExecutorRun_hook(QueryDesc *queryDesc, ScanDirection direction,
+								 uint64 count) {
+	pgr_trace_begin();
+	if (prev_ExecutorRun) {
+		prev_ExecutorRun(queryDesc, direction, count);
+	} else {
+		standard_ExecutorRun(queryDesc, direction, count);
+	}
+}
+
+static void pgr_ExecutorEnd_hook(QueryDesc *queryDesc) {
+	if (prev_ExecutorEnd) {
+		prev_ExecutorEnd(queryDesc);
+	} else {
+		standard_ExecutorEnd(queryDesc);
+	}
+	pgr_trace_end('E');
 }
 
 static void pgr_ProcessUtility_hook(PlannedStmt *pstmt, const char *queryString,
@@ -56,15 +137,16 @@ static void pgr_ProcessUtility_hook(PlannedStmt *pstmt, const char *queryString,
 									DestReceiver *dest, QueryCompletion *qc) {
 	IsUserTransaction = true;
 
-	if (IsTransactionBlock()) {
+	if (pgr_is_client() && IsTransactionBlock()) {
 		Node *parsetree = pstmt->utilityStmt;
 		if (IsA(parsetree, TransactionStmt)) {
 			TransactionStmt *stmt = (TransactionStmt *)parsetree;
 			if (stmt->kind == TRANS_STMT_ROLLBACK) {
-				pg_atomic_fetch_add_u64(&Shmem->rollbacks, 1);
+				pgr_event_rollback();
 			}
 		}
 	}
+	pgr_trace_begin();
 	if (prev_ProcessUtility) {
 		prev_ProcessUtility(pstmt, queryString, readOnlyTree, context, params,
 							queryEnv, dest, qc);
@@ -72,25 +154,27 @@ static void pgr_ProcessUtility_hook(PlannedStmt *pstmt, const char *queryString,
 		standard_ProcessUtility(pstmt, queryString, readOnlyTree, context,
 								params, queryEnv, dest, qc);
 	}
+	pgr_trace_end('U');
 }
 
 static void pgr_xact_callback(XactEvent event, void *arg) {
+	if (MyBackendType != B_BACKEND || !pgr_is_client()) {
+		return;
+	}
 	if (!Shmem) {
 		return;
 	}
-	if (MyBackendType != B_BACKEND) {
-		return;
+	if (event == XACT_EVENT_PRE_COMMIT && IsUserTransaction) {
+		pgr_trace_begin();
 	}
-	if (event == XACT_EVENT_COMMIT) {
-		if (IsUserTransaction) {
-			pgr_event_commit();
-		}
+	if (event == XACT_EVENT_COMMIT && IsUserTransaction) {
+		pgr_trace_end('C');
+		pgr_event_commit();
 		IsUserTransaction = false;
 	}
-	if (event == XACT_EVENT_ABORT) {
-		if (IsUserTransaction) {
-			pgr_event_abort();
-		}
+	if (event == XACT_EVENT_ABORT && IsUserTransaction) {
+		pgr_trace_end('A');
+		pgr_event_abort();
 		IsUserTransaction = false;
 	}
 }
@@ -126,11 +210,23 @@ void pgr_setup_hooks() {
 	prev_ClientAuthentication = ClientAuthentication_hook;
 	ClientAuthentication_hook = pgr_ClientAuthentication_hook;
 
-	prev_ProcessUtility = ProcessUtility_hook;
-	ProcessUtility_hook = pgr_ProcessUtility_hook;
+	prev_post_parse_analyze = post_parse_analyze_hook;
+	post_parse_analyze_hook = pgr_post_parse_analyze_hook;
+
+	prev_planner = planner_hook;
+	planner_hook = pgr_planner_hook;
 
 	prev_ExecutorStart = ExecutorStart_hook;
 	ExecutorStart_hook = pgr_ExecutorStart_hook;
+
+	prev_ExecutorRun = ExecutorRun_hook;
+	ExecutorRun_hook = pgr_ExecutorRun_hook;
+
+	prev_ExecutorEnd = ExecutorEnd_hook;
+	ExecutorEnd_hook = pgr_ExecutorEnd_hook;
+
+	prev_ProcessUtility = ProcessUtility_hook;
+	ProcessUtility_hook = pgr_ProcessUtility_hook;
 
 	RegisterXactCallback(pgr_xact_callback, NULL);
 }

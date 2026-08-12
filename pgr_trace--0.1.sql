@@ -15,3 +15,13 @@ CREATE FUNCTION pgr_get_statement_index()
 RETURNS bigint
 AS 'MODULE_PATHNAME', 'sql_pgr_get_statement_index'
 LANGUAGE C STRICT PARALLEL SAFE;
+
+CREATE FUNCTION pgr_trace_start()
+RETURNS void
+AS 'MODULE_PATHNAME', 'sql_pgr_trace_start'
+LANGUAGE C STRICT PARALLEL SAFE;
+
+CREATE FUNCTION pgr_trace_stop()
+RETURNS void
+AS 'MODULE_PATHNAME', 'sql_pgr_trace_stop'
+LANGUAGE C STRICT PARALLEL SAFE;
