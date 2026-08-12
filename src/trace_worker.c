@@ -26,7 +26,7 @@ static FILE *pgr_open_trace_file() {
 
 	FILE *f = fopen(path, "w");
 	if (f == NULL) {
-		ereport(WARNING,
+		ereport(ERROR,
 				(errmsg("pgr_trace: could not open trace file %s", path)));
 		return NULL;
 	}
