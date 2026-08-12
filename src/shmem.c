@@ -3,7 +3,6 @@
 #include "client_id.h"
 #include "shmem.h"
 #include "statement_index.h"
-#include "trace_worker.h"
 
 void pgr_init_memory() {
 	pg_atomic_init_u64(&Shmem->commits, 0);
@@ -18,6 +17,7 @@ void pgr_init_memory() {
 	pg_atomic_init_u64(&Shmem->dropped_events, 0);
 
 	pg_atomic_init_u32(&Shmem->trace_running, 0);
+	pg_atomic_init_u32(&Shmem->trace_reset, 0);
 	Shmem->worker_latch = NULL;
 }
 
@@ -59,14 +59,15 @@ void pgr_stats_reset() {
 	pg_atomic_write_u64(&Shmem->rollbacks, 0);
 }
 
+static void pgr_wakeup_worker() {
+	if (Shmem->worker_latch) {
+		SetLatch(Shmem->worker_latch);
+	}
+}
+
 void pgr_trace_start() {
-	if (pg_atomic_read_u32(&Shmem->trace_running) == 1) {
-		return;
-	}
-	if (!pgr_trace_worker_launch()) {
-		return;
-	}
 	pg_atomic_write_u32(&Shmem->trace_running, 1);
+	pgr_wakeup_worker();
 }
 
 void pgr_trace_stop() {
@@ -74,10 +75,12 @@ void pgr_trace_stop() {
 		return;
 	}
 	pg_atomic_write_u32(&Shmem->trace_running, 0);
+	pgr_trace_reset();
+}
 
-	if (Shmem->worker_latch) {
-		SetLatch(Shmem->worker_latch);
-	}
+void pgr_trace_reset() {
+	pg_atomic_write_u32(&Shmem->trace_reset, 1);
+	pgr_wakeup_worker();
 }
 
 bool pgr_trace_is_running() {
@@ -98,19 +101,15 @@ void pgr_send_event(char event_type, uint32 duration_us) {
 		pg_atomic_fetch_add_u64(&Shmem->dropped_events, 1);
 		return;
 	}
-
 	ev->id = (uint32)PgrClientId;
 	ev->index = (uint32)StatementIndex;
-	ev->event_type = event_type;
+	ev->type = event_type;
 	ev->duration_us = duration_us;
 
 	pg_write_barrier();
 	pg_atomic_write_u32(&ev->ready, 1);
 
-	// too expensive lol
-	// if (Shmem->worker_latch) {
-	// 	SetLatch(Shmem->worker_latch);
-	// }
+	pgr_wakeup_worker();
 }
 
 bool pgr_read_event(PgrEvent *out) {
@@ -123,7 +122,7 @@ bool pgr_read_event(PgrEvent *out) {
 	pg_read_barrier();
 	out->id = ev->id;
 	out->index = ev->index;
-	out->event_type = ev->event_type;
+	out->type = ev->type;
 	out->duration_us = ev->duration_us;
 
 	pg_atomic_write_u32(&ev->ready, 0);

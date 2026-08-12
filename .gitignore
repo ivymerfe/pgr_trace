@@ -4,4 +4,6 @@ data/
 
 /data
 /pgr
-/zz_cap/
+/zz_*/
+/perf*
+/*.svg

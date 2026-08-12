@@ -12,7 +12,7 @@ typedef struct {
 	uint32 id;
 	uint32 index;
 	uint32 duration_us;
-	char event_type;
+	char type;
 } PgrEvent;
 
 typedef struct {
@@ -22,6 +22,7 @@ typedef struct {
 	pg_atomic_uint64 dropped_events;
 
 	pg_atomic_uint32 trace_running;
+	pg_atomic_uint32 trace_reset;
 	Latch *worker_latch;
 
 	pg_atomic_uint64 head;
@@ -46,6 +47,7 @@ void pgr_stats_reset(void);
 
 void pgr_trace_start(void);
 void pgr_trace_stop(void);
+void pgr_trace_reset(void);
 bool pgr_trace_is_running(void);
 
 void pgr_send_event(char event_type, uint32 duration_us);

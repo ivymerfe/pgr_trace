@@ -5,103 +5,113 @@
 
 #include "miscadmin.h"
 #include "postmaster/bgworker.h"
+#include "postmaster/interrupt.h"
 #include "storage/latch.h"
 #include "storage/proc.h"
 #include "utils/elog.h"
 #include "utils/timestamp.h"
+#include "utils/wait_classes.h"
 
 #include <stdio.h>
 #include <sys/stat.h>
 
 #include "shmem.h"
 
-static FILE *pgr_open_trace_file() {
+static FILE *TraceFile = NULL;
+
+static void pgr_trace_close() {
+	if (TraceFile != NULL) {
+		fclose(TraceFile);
+		TraceFile = NULL;
+	}
+}
+
+static bool pgr_trace_create() {
+	pgr_trace_close();
+
 	char dir[MAXPGPATH];
 	snprintf(dir, sizeof(dir), "%s/pgr_trace", DataDir);
 	mkdir(dir, 0700);
 
 	char path[MAXPGPATH];
-	snprintf(path, sizeof(path), "%s/trace_%ld.csv", dir,
-			 (long)GetCurrentTimestamp());
+	snprintf(path, sizeof(path), "%s/%ld", dir, (long)GetCurrentTimestamp());
 
 	FILE *f = fopen(path, "w");
 	if (f == NULL) {
 		ereport(ERROR,
 				(errmsg("pgr_trace: could not open trace file %s", path)));
-		return NULL;
+		return false;
 	}
 	setvbuf(f, NULL, _IOFBF, 64 * 1024);
-	return f;
+	TraceFile = f;
+	return true;
 }
 
-static void pgr_drain_ring(FILE *f) {
-	PgrEvent ev;
-	while (pgr_read_event(&ev)) {
-		fprintf(f, "%u,%u,%c,%u\n", ev.id, ev.index, ev.event_type,
-				ev.duration_us);
+static int worker_write_events() {
+	if (TraceFile == NULL) {
+		return 0;
 	}
-}
-
-static volatile sig_atomic_t got_sigterm = false;
-
-static void pgr_trace_worker_sigterm(SIGNAL_ARGS) {
-	int save_errno = errno;
-	got_sigterm = true;
-	SetLatch(MyLatch);
-	errno = save_errno;
+	PgrEvent ev;
+	int count = 0;
+	while (pgr_read_event(&ev)) {
+		fwrite(&ev.id, sizeof(uint32), 1, TraceFile);
+		fwrite(&ev.index, sizeof(uint32), 1, TraceFile);
+		fwrite(&ev.duration_us, sizeof(uint32), 1, TraceFile);
+		fwrite(&ev.type, sizeof(char), 1, TraceFile);
+		count += 1;
+	}
+	return count;
 }
 
 PGDLLEXPORT void pgr_trace_worker_main(Datum main_arg) {
-	pqsignal(SIGTERM, pgr_trace_worker_sigterm);
+	pqsignal(SIGTERM, SignalHandlerForShutdownRequest);
+	pqsignal(SIGHUP, SignalHandlerForConfigReload);
 	BackgroundWorkerUnblockSignals();
 
 	Shmem->worker_latch = &MyProc->procLatch;
 
-	FILE *trace_file = pgr_open_trace_file();
-	if (trace_file == NULL) {
-		return;
-	}
-	while (!got_sigterm && pgr_trace_is_running()) {
-		pgr_drain_ring(trace_file);
-		pg_usleep(PGR_WORKER_SLEEP_US);
+	while (!ShutdownRequestPending) {
+		if (pg_atomic_exchange_u32(&Shmem->trace_reset, 0)) {
+			pgr_trace_close();
+		}
+		if (pgr_trace_is_running() && TraceFile == NULL) {
+			if (!pgr_trace_create()) {
+				break;
+			}
+		}
+		if (worker_write_events() > 0) {
+			pg_usleep(PGR_WORKER_SLEEP_US);
+			continue;
+		}
+		ResetLatch(MyLatch);
+		if (worker_write_events() > 0) {
+			pg_usleep(PGR_WORKER_SLEEP_US);
+			continue;
+		}
+		int rc =
+			WaitLatch(MyLatch, WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
+					  1000L, PG_WAIT_EXTENSION);
+
+		if (rc & WL_POSTMASTER_DEATH) {
+			break;
+		}
 		CHECK_FOR_INTERRUPTS();
 	}
-	pgr_drain_ring(trace_file);
-
-	fflush(trace_file);
-	fclose(trace_file);
-
+	worker_write_events();
+	pgr_trace_close();
 	Shmem->worker_latch = NULL;
 }
 
-bool pgr_trace_worker_launch() {
+void pgr_trace_worker_register() {
 	BackgroundWorker worker;
 
 	memset(&worker, 0, sizeof(worker));
-	worker.bgw_flags =
-		BGWORKER_SHMEM_ACCESS | BGWORKER_BACKEND_DATABASE_CONNECTION;
+	worker.bgw_flags = BGWORKER_SHMEM_ACCESS;
 	worker.bgw_start_time = BgWorkerStart_ConsistentState;
 	worker.bgw_restart_time = BGW_NEVER_RESTART;
 	snprintf(worker.bgw_library_name, BGW_MAXLEN, "pgr_trace");
 	snprintf(worker.bgw_function_name, BGW_MAXLEN, "pgr_trace_worker_main");
 	snprintf(worker.bgw_name, BGW_MAXLEN, "pgr trace worker");
 	snprintf(worker.bgw_type, BGW_MAXLEN, "pgr trace worker");
-	worker.bgw_notify_pid = MyProcPid;
-
-	BackgroundWorkerHandle *handle;
-	if (!RegisterDynamicBackgroundWorker(&worker, &handle)) {
-		ereport(WARNING,
-				(errmsg("pgr_trace: could not register background worker")));
-		return false;
-	}
-
-	pid_t pid;
-	BgwHandleStatus status = WaitForBackgroundWorkerStartup(handle, &pid);
-	if (status != BGWH_STARTED) {
-		ereport(WARNING,
-				(errmsg("pgr_trace: background worker failed to start")));
-		return false;
-	}
-
-	return true;
+	RegisterBackgroundWorker(&worker);
 }

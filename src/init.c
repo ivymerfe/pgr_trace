@@ -5,6 +5,7 @@
 
 #include "hooks.h"
 #include "statement_index.h"
+#include "trace_worker.h"
 
 PG_MODULE_MAGIC;
 
@@ -16,4 +17,5 @@ void _PG_init(void) {
 	}
 	pgr_setup_hooks();
 	pgr_statement_index_setup_hook();
+	pgr_trace_worker_register();
 }

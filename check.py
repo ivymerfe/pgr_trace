@@ -1,31 +1,33 @@
-import os
-import glob
 from collections import defaultdict
+import os
+import struct
 
-def process_latest_csv(folder_path):
-    csv_files = glob.glob(os.path.join(folder_path, "*.csv"))
-    
-    if not csv_files:
+
+def check_latest_trace(folder_path):
+    with os.scandir(folder_path) as entries:
+        files = [
+            entry
+            for entry in entries
+            if entry.is_file() and entry.stat().st_size > 0
+        ]
+
+    if not files:
         print("no file.")
         return
 
-    latest_file = max(csv_files, key=os.path.getmtime)
-    print(f"Trace file: {latest_file}\n")
+    latest_entry = max(files, key=lambda entry: entry.stat().st_mtime)
+    print(f"Trace file: {latest_entry.path}\n")
 
     totals = defaultdict(int)
 
-    with open(latest_file, 'r', encoding='utf-8') as file:
-        for line in file:
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(',')
-            user_id = parts[0].strip()
-            value = int(parts[3].strip())
-            
-            totals[user_id] += value
+    struct_fmt = "<IIIb"
+    with open(latest_entry.path, "rb") as file:
+        data = file.read()
+        for user_id, index, duration_us, event_type in struct.iter_unpack(struct_fmt, data):
+            totals[user_id] += duration_us
 
-    for user_id, total_sum in sorted(totals.items(), key=lambda x: int(x[0])):
+    for user_id, total_sum in sorted(totals.items(), key=lambda x: x[0]):
         print(f"ID {user_id}: {total_sum}")
 
-process_latest_csv('data/pgr_trace')
+
+check_latest_trace("data/pgr_trace")

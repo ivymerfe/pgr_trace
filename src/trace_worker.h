@@ -6,7 +6,7 @@
 // sorry
 #define PGR_WORKER_SLEEP_US 1000
 
-bool pgr_trace_worker_launch(void);
+void pgr_trace_worker_register(void);
 void pgr_trace_worker_main(Datum main_arg);
 
 #endif

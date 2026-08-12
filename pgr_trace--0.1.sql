@@ -26,3 +26,8 @@ CREATE FUNCTION pgr_trace_stop()
 RETURNS void
 AS 'MODULE_PATHNAME', 'sql_pgr_trace_stop'
 LANGUAGE C STRICT PARALLEL SAFE;
+
+CREATE FUNCTION pgr_trace_reset()
+RETURNS void
+AS 'MODULE_PATHNAME', 'sql_pgr_trace_reset'
+LANGUAGE C STRICT PARALLEL SAFE;
