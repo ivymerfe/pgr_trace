@@ -2,7 +2,7 @@
 
 #include "client_id.h"
 #include "shmem.h"
-#include "statement_index.h"
+#include "statement_start_hook.h"
 
 void pgr_init_memory() {
 	pg_atomic_init_u64(&Shmem->commits, 0);

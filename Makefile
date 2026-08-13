@@ -5,7 +5,7 @@ SOURCES = \
 	src/shmem.c \
 	src/funcs.c \
 	src/hooks.c \
-	src/statement_index.c \
+	src/statement_start_hook.c \
 	src/client_id.c \
 	src/trace_worker.c
 

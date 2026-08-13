@@ -4,7 +4,7 @@
 #include "miscadmin.h"
 
 #include "hooks.h"
-#include "statement_index.h"
+#include "statement_start_hook.h"
 #include "trace_worker.h"
 
 PG_MODULE_MAGIC;
@@ -16,6 +16,6 @@ void _PG_init(void) {
 			(errmsg("pgr_trace must be loaded via shared_preload_libraries")));
 	}
 	pgr_setup_hooks();
-	pgr_statement_index_setup_hook();
+	pgr_statement_start_hook_setup();
 	pgr_trace_worker_register();
 }

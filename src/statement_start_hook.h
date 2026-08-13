@@ -3,6 +3,6 @@
 
 extern uint64 StatementIndex;
 
-void pgr_statement_index_setup_hook(void);
+void pgr_statement_start_hook_setup(void);
 
 #endif
