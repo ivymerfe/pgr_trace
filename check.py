@@ -1,3 +1,4 @@
+import csv
 from collections import defaultdict
 import os
 import struct
@@ -20,11 +21,18 @@ def check_latest_trace(folder_path):
 
     totals = defaultdict(int)
 
+    csv_path = "trace.csv"
     struct_fmt = "<IIIb"
-    with open(latest_entry.path, "rb") as file:
+    with open(latest_entry.path, "rb") as file, open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(["user_id", "index", "duration_us", "event_type"])
         data = file.read()
         for user_id, index, duration_us, event_type in struct.iter_unpack(struct_fmt, data):
             totals[user_id] += duration_us
+            event_char = chr(event_type & 0xFF)
+            writer.writerow([user_id, index, duration_us, event_char])
+
+    print(f"Output: {csv_path}\n")
 
     for user_id, total_sum in sorted(totals.items(), key=lambda x: x[0]):
         print(f"ID {user_id}: {total_sum}")
