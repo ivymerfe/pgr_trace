@@ -34,7 +34,8 @@ static bool pgr_trace_create() {
 	mkdir(dir, 0700);
 
 	char path[MAXPGPATH];
-	snprintf(path, sizeof(path), "%s/%ld", dir, (long)GetCurrentTimestamp());
+	snprintf(path, sizeof(path), "%s/%ld.trace", dir,
+			 (long)GetCurrentTimestamp());
 
 	FILE *f = fopen(path, "w");
 	if (f == NULL) {
